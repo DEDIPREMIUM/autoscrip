@@ -38,7 +38,35 @@ sleep 2
 
 # Fungsi Cek Status Layanan
 check_service() {
-    systemctl is-active --quiet "$1" && echo -e "[✔]" || echo -e "[✘]"
+    case "$1" in
+        "websocat")
+            # WebSocket tidak punya service, cek apakah binary ada
+            command -v websocat &>/dev/null && echo -e "[✔]" || echo -e "[✘]"
+            ;;
+        "stunnel5")
+            # Cek stunnel5 service atau stunnel4
+            if systemctl is-active --quiet stunnel5 2>/dev/null; then
+                echo -e "[✔]"
+            elif systemctl is-active --quiet stunnel4 2>/dev/null; then
+                echo -e "[✔]"
+            else
+                echo -e "[✘]"
+            fi
+            ;;
+        "openvpn")
+            # Cek OpenVPN service
+            if systemctl is-active --quiet openvpn@server 2>/dev/null; then
+                echo -e "[✔]"
+            elif systemctl is-active --quiet openvpn 2>/dev/null; then
+                echo -e "[✔]"
+            else
+                echo -e "[✘]"
+            fi
+            ;;
+        *)
+            systemctl is-active --quiet "$1" && echo -e "[✔]" || echo -e "[✘]"
+            ;;
+    esac
 }
 
 # Fungsi Cek Jumlah Akun
@@ -149,6 +177,111 @@ install_services() {
         unzip /tmp/xray.zip -d /usr/local/bin/
         chmod +x /usr/local/bin/xray
         rm -f /tmp/xray.zip
+    fi
+    
+    # WebSocket (websocat)
+    if ! command -v websocat &>/dev/null; then
+        echo "Installing WebSocket (websocat)..."
+        wget -O /usr/local/bin/websocat https://github.com/vi/websocat/releases/download/v1.11.0/websocat_amd64-linux
+        chmod +x /usr/local/bin/websocat
+    fi
+    
+    # Stunnel5 (build from source if needed)
+    if ! command -v stunnel5 &>/dev/null && ! command -v stunnel4 &>/dev/null; then
+        echo "Installing Stunnel5..."
+        apt install -y build-essential libssl-dev
+        wget https://www.stunnel.org/downloads/stunnel-5.69.tar.gz
+        tar xzf stunnel-5.69.tar.gz
+        cd stunnel-5.69 && ./configure && make && make install
+        cd .. && rm -rf stunnel-5.69*
+        
+        # Setup Stunnel5 service
+        cat > /etc/systemd/system/stunnel5.service <<EOF
+[Unit]
+Description=Stunnel5 SSL Wrapper
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/stunnel5 /etc/stunnel5/stunnel5.conf
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Setup Stunnel5 config
+        mkdir -p /etc/stunnel5
+        cat > /etc/stunnel5/stunnel5.conf <<EOF
+pid = /var/run/stunnel5.pid
+cert = /etc/ssl/certs/ssl-cert-snakeoil.pem
+key = /etc/ssl/private/ssl-cert-snakeoil.key
+
+[sslvpn]
+accept = 443
+connect = 127.0.0.1:22
+EOF
+        
+        systemctl daemon-reload
+        systemctl enable stunnel5
+        systemctl start stunnel5
+    fi
+    
+    # OpenVPN Setup
+    echo "Setting up OpenVPN..."
+    mkdir -p /etc/openvpn/server
+    
+    # Generate OpenVPN config
+    cat > /etc/openvpn/server/server.conf <<EOF
+port 1194
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh dh2048.pem
+server 10.8.0.0 255.255.255.0
+ifconfig-pool-persist ipp.txt
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+keepalive 10 120
+tls-auth ta.key 0
+cipher AES-256-CBC
+auth SHA256
+comp-lzo
+user nobody
+group nogroup
+persist-key
+persist-tun
+status openvpn-status.log
+verb 3
+explicit-exit-notify 1
+EOF
+    
+    # Generate OpenVPN certificates (simple setup)
+    if [ ! -f /etc/openvpn/server/ca.crt ]; then
+        echo "Generating OpenVPN certificates..."
+        cd /etc/openvpn/server
+        
+        # Generate CA
+        openssl genrsa -out ca.key 2048
+        openssl req -new -x509 -days 3650 -key ca.key -out ca.crt -subj "/C=US/ST=CA/L=City/O=Organization/CN=VPN-CA"
+        
+        # Generate server certificate
+        openssl genrsa -out server.key 2048
+        openssl req -new -key server.key -out server.csr -subj "/C=US/ST=CA/L=City/O=Organization/CN=server"
+        openssl x509 -req -days 365 -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt
+        
+        # Generate DH parameters
+        openssl dhparam -out dh2048.pem 2048
+        
+        # Generate TLS auth key
+        openvpn --genkey --secret ta.key
+        
+        chmod 600 *.key
+        chmod 644 *.crt *.pem
     fi
     
     # Setup Xray service
@@ -267,8 +400,8 @@ EOF
     
     # Enable and start services
     systemctl daemon-reload
-    systemctl enable xray nginx dropbear squid
-    systemctl start xray nginx dropbear squid
+    systemctl enable xray nginx dropbear squid openvpn@server
+    systemctl start xray nginx dropbear squid openvpn@server
     
     echo "Services installation completed!"
 }
@@ -627,8 +760,25 @@ change_banner() {
 }
 check_ports() { ss -tuln; read -n1 -r -p "Press any key..."; main_menu; }
 restart_services() {
-    systemctl restart nginx dropbear xray stunnel5 squid openvpn 2>/dev/null
-    echo "Semua layanan direstart!"; sleep 1; main_menu;
+    echo "Restarting all services..."
+    systemctl restart nginx dropbear xray squid 2>/dev/null
+    
+    # Restart Stunnel5 if exists
+    if systemctl list-unit-files | grep -q stunnel5; then
+        systemctl restart stunnel5 2>/dev/null
+    elif systemctl list-unit-files | grep -q stunnel4; then
+        systemctl restart stunnel4 2>/dev/null
+    fi
+    
+    # Restart OpenVPN if exists
+    if systemctl list-unit-files | grep -q openvpn@server; then
+        systemctl restart openvpn@server 2>/dev/null
+    elif systemctl list-unit-files | grep -q openvpn; then
+        systemctl restart openvpn 2>/dev/null
+    fi
+    
+    echo "Semua layanan direstart!"
+    sleep 1; main_menu;
 }
 show_all_accounts() {
     echo "== SSH =="; cat /etc/ssh/ssh_account 2>/dev/null || echo "-";
