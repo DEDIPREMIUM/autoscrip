@@ -9,11 +9,20 @@ echo "==================================="
 echo "  Installing VPN Server..."
 echo "==================================="
 
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+   echo "Script harus dijalankan sebagai root!" 
+   echo "Gunakan: sudo bash install.sh"
+   exit 1
+fi
+
 # Download main script
-wget -O /root/vpn-installer.sh https://raw.githubusercontent.com/your-repo/vpn-installer.sh/main/vpn-installer.sh
+echo "Downloading VPN installer..."
+wget -O /root/vpn-installer.sh https://raw.githubusercontent.com/your-repo/vpn-installer/main/vpn-installer.sh
 chmod +x /root/vpn-installer.sh
 
 # Run installer
+echo "Starting VPN installation..."
 /root/vpn-installer.sh
 
 echo "==================================="

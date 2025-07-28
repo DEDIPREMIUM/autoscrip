@@ -41,7 +41,7 @@ check_service() {
     systemctl is-active --quiet "$1" && echo -e "[✔]" || echo -e "[✘]"
 }
 
-# Fungsi Cek Jumlah Akun (dummy, bisa dikembangkan)
+# Fungsi Cek Jumlah Akun
 count_ssh() {
     grep -cE '^### ' /etc/ssh/ssh_account 2>/dev/null || echo 0
 }
@@ -55,28 +55,100 @@ count_trojan() {
     grep -cE '^### ' /etc/xray/trojan_account 2>/dev/null || echo 0
 }
 
+# Fungsi Auto Expired
+clean_expired_accounts() {
+    today=$(date +%Y-%m-%d)
+    echo "Cleaning expired accounts..."
+    
+    # SSH
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            if [[ "$expdate" < "$today" ]]; then
+                userdel "$user" 2>/dev/null
+                sed -i "/^### $user /d" /etc/ssh/ssh_account
+                echo "SSH Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/ssh/ssh_account 2>/dev/null
+    
+    # VMess
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            uuid="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                if [ -f "/etc/xray/config.json" ]; then
+                    jq "(.inbounds[0].settings.clients) |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                fi
+                sed -i "/^### $user /d" /etc/xray/vmess_account
+                echo "VMess Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/vmess_account 2>/dev/null
+    
+    # VLESS
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            uuid="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                if [ -f "/etc/xray/config.json" ]; then
+                    idx=$(jq '.inbounds | map(.protocol == "vless") | index(true)' /etc/xray/config.json 2>/dev/null)
+                    if [ "$idx" != "null" ] && [ -n "$idx" ]; then
+                        jq ".inbounds[$idx].settings.clients |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                    fi
+                fi
+                sed -i "/^### $user /d" /etc/xray/vless_account
+                echo "VLESS Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/vless_account 2>/dev/null
+    
+    # Trojan
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            pass="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                if [ -f "/etc/xray/config.json" ]; then
+                    idx=$(jq '.inbounds | map(.protocol == "trojan") | index(true)' /etc/xray/config.json 2>/dev/null)
+                    if [ "$idx" != "null" ] && [ -n "$idx" ]; then
+                        jq ".inbounds[$idx].settings.clients |= map(select(.password != \"$pass\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                    fi
+                fi
+                sed -i "/^### $user /d" /etc/xray/trojan_account
+                echo "Trojan Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/trojan_account 2>/dev/null
+    
+    systemctl restart xray 2>/dev/null
+    echo "Expired accounts cleanup completed!"
+}
+
+# Check if script is called with --clean-expired argument
+if [[ "$1" == "--clean-expired" ]]; then
+    clean_expired_accounts
+    exit 0
+fi
+
 # Fungsi Instalasi Layanan
 install_services() {
-    apt update && apt install -y nginx dropbear stunnel4 squid openvpn curl socat xz-utils wget gnupg2 lsb-release jq
+    echo "Installing required packages..."
+    apt update && apt install -y nginx dropbear stunnel4 squid openvpn curl socat xz-utils wget gnupg2 lsb-release jq unzip
+    
     # Xray Core
     if ! command -v xray &>/dev/null; then
-        wget -O /usr/local/bin/xray https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-        unzip Xray-linux-64.zip -d /usr/local/bin/
+        echo "Installing Xray Core..."
+        wget -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+        unzip /tmp/xray.zip -d /usr/local/bin/
         chmod +x /usr/local/bin/xray
-        rm -f Xray-linux-64.zip
-    fi
-    # Stunnel5 (build from source)
-    if ! command -v stunnel5 &>/dev/null; then
-        apt install -y build-essential libssl-dev
-        wget https://www.stunnel.org/downloads/stunnel-5.69.tar.gz
-        tar xzf stunnel-5.69.tar.gz
-        cd stunnel-5.69 && ./configure && make && make install
-        cd .. && rm -rf stunnel-5.69*
-    fi
-    # WebSocket (simple python)
-    if ! command -v websocat &>/dev/null; then
-        wget -O /usr/local/bin/websocat https://github.com/vi/websocat/releases/download/v1.11.0/websocat_amd64-linux
-        chmod +x /usr/local/bin/websocat
+        rm -f /tmp/xray.zip
     fi
     
     # Setup Xray service
@@ -98,6 +170,36 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
+EOF
+    
+    # Setup initial Xray config
+    mkdir -p /etc/xray
+    cat > /etc/xray/config.json <<EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    }
+  ]
+}
 EOF
     
     # Setup Dropbear
@@ -167,13 +269,9 @@ EOF
     systemctl daemon-reload
     systemctl enable xray nginx dropbear squid
     systemctl start xray nginx dropbear squid
+    
+    echo "Services installation completed!"
 }
-
-# Check if script is called with --clean-expired argument
-if [[ "$1" == "--clean-expired" ]]; then
-    clean_expired_accounts
-    exit 0
-fi
 
 # Fungsi Menu
 main_menu() {
@@ -540,69 +638,6 @@ show_all_accounts() {
     read -n1 -r -p "Press any key..."; main_menu;
 }
 
-# Fungsi Auto Expired
-clean_expired_accounts() {
-    today=$(date +%Y-%m-%d)
-    # SSH
-    while IFS= read -r line; do
-        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
-            user="${BASH_REMATCH[1]}"
-            expdate="${BASH_REMATCH[2]}"
-            if [[ "$expdate" < "$today" ]]; then
-                userdel "$user" 2>/dev/null
-                sed -i "/^### $user /d" /etc/ssh/ssh_account
-                echo "SSH Account $user expired and deleted"
-            fi
-        fi
-    done < /etc/ssh/ssh_account
-    
-    # VMess
-    while IFS= read -r line; do
-        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
-            user="${BASH_REMATCH[1]}"
-            expdate="${BASH_REMATCH[2]}"
-            uuid="${BASH_REMATCH[3]}"
-            if [[ "$expdate" < "$today" ]]; then
-                jq "(.inbounds[0].settings.clients) |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
-                sed -i "/^### $user /d" /etc/xray/vmess_account
-                echo "VMess Account $user expired and deleted"
-            fi
-        fi
-    done < /etc/xray/vmess_account
-    
-    # VLESS
-    while IFS= read -r line; do
-        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
-            user="${BASH_REMATCH[1]}"
-            expdate="${BASH_REMATCH[2]}"
-            uuid="${BASH_REMATCH[3]}"
-            if [[ "$expdate" < "$today" ]]; then
-                idx=$(jq '.inbounds | map(.protocol == "vless") | index(true)' /etc/xray/config.json)
-                jq ".inbounds[$idx].settings.clients |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
-                sed -i "/^### $user /d" /etc/xray/vless_account
-                echo "VLESS Account $user expired and deleted"
-            fi
-        fi
-    done < /etc/xray/vless_account
-    
-    # Trojan
-    while IFS= read -r line; do
-        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
-            user="${BASH_REMATCH[1]}"
-            expdate="${BASH_REMATCH[2]}"
-            pass="${BASH_REMATCH[3]}"
-            if [[ "$expdate" < "$today" ]]; then
-                idx=$(jq '.inbounds | map(.protocol == "trojan") | index(true)' /etc/xray/config.json)
-                jq ".inbounds[$idx].settings.clients |= map(select(.password != \"$pass\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
-                sed -i "/^### $user /d" /etc/xray/trojan_account
-                echo "Trojan Account $user expired and deleted"
-            fi
-        fi
-    done < /etc/xray/trojan_account
-    
-    systemctl restart xray
-}
-
 # Fungsi Auto Renew
 renew_account() {
     clear
@@ -844,7 +879,38 @@ mkdir -p /etc/ssh /etc/xray
 for f in ssh_account vmess_account vless_account trojan_account; do
     [ ! -f /etc/ssh/$f ] && touch /etc/ssh/$f
     [ ! -f /etc/xray/$f ] && touch /etc/xray/$f
-    done
+done
+
+# Pastikan Xray config ada
+if [ ! -f /etc/xray/config.json ]; then
+    cat > /etc/xray/config.json <<EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    }
+  ]
+}
+EOF
+fi
 
 # Tampilkan menu utama
 main_menu
