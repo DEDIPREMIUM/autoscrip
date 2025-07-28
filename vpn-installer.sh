@@ -245,7 +245,7 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
     
-    # Setup initial Xray config with domain
+    # Setup Xray config with Cloudflare support
     mkdir -p /etc/xray
     cat > /etc/xray/config.json <<EOF
 {
@@ -253,6 +253,19 @@ EOF
     "loglevel": "warning"
   },
   "inbounds": [
+    {
+      "port": 80,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    },
     {
       "port": 443,
       "protocol": "vmess",
@@ -263,6 +276,84 @@ EOF
         "network": "ws",
         "wsSettings": {
           "path": "/vmess"
+        }
+      }
+    },
+    {
+      "port": 8080,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    },
+    {
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vless"
+        }
+      }
+    },
+    {
+      "port": 2053,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/trojan"
+        }
+      }
+    },
+    {
+      "port": 2083,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    },
+    {
+      "port": 2087,
+      "protocol": "vless",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vless"
+        }
+      }
+    },
+    {
+      "port": 2096,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/trojan"
         }
       }
     }
@@ -287,18 +378,22 @@ DROPBEAR_ECDSAKEY="/etc/dropbear/dropbear_ecdsa_host_key"
 DROPBEAR_RECEIVE_WINDOW=65536
 EOF
     
-    # Setup Nginx with domain
+    # Setup Nginx with Cloudflare support
     cat > /etc/nginx/sites-available/default <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
     
+    # Cloudflare WebSocket Support
     location /vmess {
-        proxy_pass http://127.0.0.1:443;
+        proxy_pass http://127.0.0.1:80;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
     
     location /vless {
@@ -307,14 +402,84 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
     
     location /trojan {
-        proxy_pass http://127.0.0.1:9443;
+        proxy_pass http://127.0.0.1:2053;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    # Additional paths for Cloudflare
+    location /ws {
+        proxy_pass http://127.0.0.1:80;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+    
+    location /cf {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+}
+
+# HTTPS server for Cloudflare
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+    
+    # SSL configuration for Cloudflare
+    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    
+    # Cloudflare WebSocket Support
+    location /vmess {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    location /vless {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    location /trojan {
+        proxy_pass http://127.0.0.1:2053;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -332,6 +497,8 @@ EOF
 ===================================
 Host: $DOMAIN
 Date: $(date)
+Cloudflare: Supported
+Ports: 80, 443, 8080, 8443, 2053, 2083, 2087, 2096
 ===================================
 EOF
     
@@ -343,7 +510,7 @@ EOF
     systemctl enable xray nginx dropbear squid
     systemctl start xray nginx dropbear squid
     
-    echo "Services installation completed!"
+    echo "Services installation completed with Cloudflare support!"
 }
 
 # Fungsi Menu dengan layout 1 baris 2 kolom
@@ -479,22 +646,34 @@ add_vless_account() {
     uuid=$(cat /proc/sys/kernel/random/uuid)
     expdate=$(date -d "+$exp days" +%Y-%m-%d)
     config="/etc/xray/config.json"
-    # Pastikan inbound VLESS ada
-    if ! grep -q '"protocol": "vless"' $config; then
-        jq '.inbounds += [{"port": 8443, "protocol": "vless", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/vless"}, "security": "tls"}}]' $config > /tmp/config.json && mv /tmp/config.json $config
-    fi
-    # Tambah user ke clients VLESS
-    idx=$(jq '.inbounds | map(.protocol == "vless") | index(true)' $config)
-    jq ".inbounds[$idx].settings.clients += [{\"id\": \"$uuid\", \"email\": \"$user\"}]" --arg idx "$idx" $config > /tmp/config.json && mv /tmp/config.json $config
+    
+    # Add user to all VLESS inbounds
+    for i in 3 6; do
+        jq ".inbounds[$i].settings.clients += [{\"id\": \"$uuid\", \"email\": \"$user\"}]" $config > /tmp/config.json && mv /tmp/config.json $config
+    done
+    
     echo "### $user $expdate $uuid" >> /etc/xray/vless_account
     systemctl restart xray
-    # Output link
-    domain=$(curl -s ifconfig.me)
-    port=8443
-    vless_link="vless://$uuid@$domain:$port?encryption=none&security=tls&type=ws&host=$domain&path=%2Fvless#${user}"
+    
+    # Output links
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me)
+    
     echo "Akun VLESS berhasil dibuat!"
-    echo "Link: $vless_link"
+    echo "Username: $user"
+    echo "UUID: $uuid"
     echo "Expired: $expdate"
+    echo ""
+    echo "=== CLOUDFLARE LINKS ==="
+    # Port 8443 (Cloudflare)
+    vless_link_8443="vless://$uuid@$domain:8443?encryption=none&security=tls&type=ws&host=$domain&path=%2Fvless#${user}-CF8443"
+    echo "Port 8443 (CF): $vless_link_8443"
+    
+    echo ""
+    echo "=== DIRECT LINKS ==="
+    # Port 2087 (Direct)
+    vless_link_2087="vless://$uuid@$domain:2087?encryption=none&security=none&type=ws&host=$domain&path=%2Fvless#${user}-DIR2087"
+    echo "Port 2087 (Direct): $vless_link_2087"
+    
     read -n1 -r -p "Press any key..."; manage_vless
 }
 
@@ -541,36 +720,47 @@ add_vmess_account() {
     read -rp "Masa aktif (hari): " exp
     uuid=$(cat /proc/sys/kernel/random/uuid)
     expdate=$(date -d "+$exp days" +%Y-%m-%d)
-    # Tambah ke config Xray
     config="/etc/xray/config.json"
-    if ! grep -q '"clients"' $config; then
-        # Buat config minimal jika belum ada
-        cat > $config <<EOF
-{
-  "inbounds": [
-    {
-      "port": 443,
-      "protocol": "vmess",
-      "settings": {"clients": []},
-      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}}
-    }
-  ],
-  "outbounds": [{"protocol": "freedom"}]
-}
-EOF
-    fi
-    # Tambah user ke clients
-    jq ".inbounds[0].settings.clients += [{\"id\": \"$uuid\", \"alterId\": 0, \"email\": \"$user\"}]" $config > /tmp/config.json && mv /tmp/config.json $config
+    
+    # Add user to all VMess inbounds
+    for i in 0 1 2 5; do
+        jq ".inbounds[$i].settings.clients += [{\"id\": \"$uuid\", \"alterId\": 0, \"email\": \"$user\"}]" $config > /tmp/config.json && mv /tmp/config.json $config
+    done
+    
     echo "### $user $expdate $uuid" >> /etc/xray/vmess_account
     systemctl restart xray
-    # Output link
-    domain=$(curl -s ifconfig.me)
-    port=443
-    vmess_json="{\"v\":\"2\",\"ps\":\"$user\",\"add\":\"$domain\",\"port\":\"$port\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"tls\"}"
-    vmess_link="vmess://$(echo -n $vmess_json | base64 -w 0)"
+    
+    # Output links for different ports
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me)
+    
     echo "Akun VMess berhasil dibuat!"
-    echo "Link: $vmess_link"
+    echo "Username: $user"
+    echo "UUID: $uuid"
     echo "Expired: $expdate"
+    echo ""
+    echo "=== CLOUDFLARE LINKS ==="
+    # Port 80 (Cloudflare HTTP)
+    vmess_json_80="{\"v\":\"2\",\"ps\":\"$user-CF80\",\"add\":\"$domain\",\"port\":\"80\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"none\"}"
+    vmess_link_80="vmess://$(echo -n $vmess_json_80 | base64 -w 0)"
+    echo "Port 80 (HTTP): $vmess_link_80"
+    
+    # Port 443 (Cloudflare HTTPS)
+    vmess_json_443="{\"v\":\"2\",\"ps\":\"$user-CF443\",\"add\":\"$domain\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"tls\"}"
+    vmess_link_443="vmess://$(echo -n $vmess_json_443 | base64 -w 0)"
+    echo "Port 443 (HTTPS): $vmess_link_443"
+    
+    echo ""
+    echo "=== DIRECT LINKS ==="
+    # Port 8080 (Direct)
+    vmess_json_8080="{\"v\":\"2\",\"ps\":\"$user-DIR8080\",\"add\":\"$domain\",\"port\":\"8080\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"none\"}"
+    vmess_link_8080="vmess://$(echo -n $vmess_json_8080 | base64 -w 0)"
+    echo "Port 8080 (Direct): $vmess_link_8080"
+    
+    # Port 2083 (Direct)
+    vmess_json_2083="{\"v\":\"2\",\"ps\":\"$user-DIR2083\",\"add\":\"$domain\",\"port\":\"2083\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"none\"}"
+    vmess_link_2083="vmess://$(echo -n $vmess_json_2083 | base64 -w 0)"
+    echo "Port 2083 (Direct): $vmess_link_2083"
+    
     read -n1 -r -p "Press any key..."; manage_vmess
 }
 
@@ -618,22 +808,34 @@ add_trojan_account() {
     pass=$(cat /proc/sys/kernel/random/uuid)
     expdate=$(date -d "+$exp days" +%Y-%m-%d)
     config="/etc/xray/config.json"
-    # Pastikan inbound Trojan ada
-    if ! grep -q '"protocol": "trojan"' $config; then
-        jq '.inbounds += [{"port": 9443, "protocol": "trojan", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/trojan"}, "security": "tls"}}]' $config > /tmp/config.json && mv /tmp/config.json $config
-    fi
-    # Tambah user ke clients Trojan
-    idx=$(jq '.inbounds | map(.protocol == "trojan") | index(true)' $config)
-    jq ".inbounds[$idx].settings.clients += [{\"password\": \"$pass\", \"email\": \"$user\"}]" --arg idx "$idx" $config > /tmp/config.json && mv /tmp/config.json $config
+    
+    # Add user to all Trojan inbounds
+    for i in 4 7; do
+        jq ".inbounds[$i].settings.clients += [{\"password\": \"$pass\", \"email\": \"$user\"}]" $config > /tmp/config.json && mv /tmp/config.json $config
+    done
+    
     echo "### $user $expdate $pass" >> /etc/xray/trojan_account
     systemctl restart xray
-    # Output link
-    domain=$(curl -s ifconfig.me)
-    port=9443
-    trojan_link="trojan://$pass@$domain:$port?type=ws&security=tls&host=$domain&path=%2Ftrojan#${user}"
+    
+    # Output links
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me)
+    
     echo "Akun Trojan berhasil dibuat!"
-    echo "Link: $trojan_link"
+    echo "Username: $user"
+    echo "Password: $pass"
     echo "Expired: $expdate"
+    echo ""
+    echo "=== CLOUDFLARE LINKS ==="
+    # Port 2053 (Cloudflare)
+    trojan_link_2053="trojan://$pass@$domain:2053?type=ws&security=tls&host=$domain&path=%2Ftrojan#${user}-CF2053"
+    echo "Port 2053 (CF): $trojan_link_2053"
+    
+    echo ""
+    echo "=== DIRECT LINKS ==="
+    # Port 2096 (Direct)
+    trojan_link_2096="trojan://$pass@$domain:2096?type=ws&security=none&host=$domain&path=%2Ftrojan#${user}-DIR2096"
+    echo "Port 2096 (Direct): $trojan_link_2096"
+    
     read -n1 -r -p "Press any key..."; manage_trojan
 }
 
