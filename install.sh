@@ -18,7 +18,7 @@ fi
 
 # Download main script
 echo "Downloading VPN installer..."
-wget -O /root/vpn-installer.sh https://raw.githubusercontent.com/your-repo/vpn-installer/main/vpn-installer.sh
+wget -O /root/vpn-installer.sh https://raw.githubusercontent.com/DEDIPREMIUM/autoscrip/main/vpn-installer.sh
 chmod +x /root/vpn-installer.sh
 
 # Run installer
