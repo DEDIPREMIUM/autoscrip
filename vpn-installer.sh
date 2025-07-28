@@ -21,6 +21,7 @@ GREEN="\e[32m"
 RED="\e[31m"
 YELLOW="\e[33m"
 BLUE="\e[34m"
+CYAN="\e[36m"
 NC="\e[0m"
 
 # Banner
@@ -36,15 +37,53 @@ echo "==================================="
 echo -e "${NC}"
 sleep 2
 
+# Input Domain First
+input_domain() {
+    clear
+    echo -e "${CYAN}===================================${NC}"
+    echo -e "${CYAN}  DOMAIN CONFIGURATION${NC}"
+    echo -e "${CYAN}===================================${NC}"
+    echo ""
+    
+    # Get current IP
+    current_ip=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+    echo -e "Current IP: ${YELLOW}$current_ip${NC}"
+    
+    read -rp "Enter your domain (or press Enter to use IP): " domain_input
+    
+    if [ -z "$domain_input" ]; then
+        DOMAIN="$current_ip"
+        echo -e "Using IP: ${GREEN}$DOMAIN${NC}"
+    else
+        DOMAIN="$domain_input"
+        echo -e "Using Domain: ${GREEN}$DOMAIN${NC}"
+    fi
+    
+    # Save domain to file
+    echo "$DOMAIN" > /etc/vpn_domain
+    
+    echo ""
+    echo -e "${GREEN}Domain configured successfully!${NC}"
+    sleep 2
+}
+
+# Get VPS Info
+get_vps_info() {
+    VPS_IP=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "unknown")
+    VPS_RAM=$(free -h | grep Mem | awk '{print $2}')
+    VPS_CORE=$(nproc)
+    VPS_OS=$(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+    VPS_UPTIME=$(uptime -p)
+    VPS_LOAD=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+}
+
 # Fungsi Cek Status Layanan
 check_service() {
     case "$1" in
         "websocat")
-            # WebSocket tidak punya service, cek apakah binary ada
             command -v websocat &>/dev/null && echo -e "[✔]" || echo -e "[✘]"
             ;;
         "stunnel5")
-            # Cek stunnel5 service atau stunnel4
             if systemctl is-active --quiet stunnel5 2>/dev/null; then
                 echo -e "[✔]"
             elif systemctl is-active --quiet stunnel4 2>/dev/null; then
@@ -54,7 +93,6 @@ check_service() {
             fi
             ;;
         "openvpn")
-            # Cek OpenVPN service
             if systemctl is-active --quiet openvpn@server 2>/dev/null; then
                 echo -e "[✔]"
             elif systemctl is-active --quiet openvpn 2>/dev/null; then
@@ -186,104 +224,6 @@ install_services() {
         chmod +x /usr/local/bin/websocat
     fi
     
-    # Stunnel5 (build from source if needed)
-    if ! command -v stunnel5 &>/dev/null && ! command -v stunnel4 &>/dev/null; then
-        echo "Installing Stunnel5..."
-        apt install -y build-essential libssl-dev
-        wget https://www.stunnel.org/downloads/stunnel-5.69.tar.gz
-        tar xzf stunnel-5.69.tar.gz
-        cd stunnel-5.69 && ./configure && make && make install
-        cd .. && rm -rf stunnel-5.69*
-        
-        # Setup Stunnel5 service
-        cat > /etc/systemd/system/stunnel5.service <<EOF
-[Unit]
-Description=Stunnel5 SSL Wrapper
-After=network.target
-
-[Service]
-Type=forking
-ExecStart=/usr/local/bin/stunnel5 /etc/stunnel5/stunnel5.conf
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        
-        # Setup Stunnel5 config
-        mkdir -p /etc/stunnel5
-        cat > /etc/stunnel5/stunnel5.conf <<EOF
-pid = /var/run/stunnel5.pid
-cert = /etc/ssl/certs/ssl-cert-snakeoil.pem
-key = /etc/ssl/private/ssl-cert-snakeoil.key
-
-[sslvpn]
-accept = 443
-connect = 127.0.0.1:22
-EOF
-        
-        systemctl daemon-reload
-        systemctl enable stunnel5
-        systemctl start stunnel5
-    fi
-    
-    # OpenVPN Setup
-    echo "Setting up OpenVPN..."
-    mkdir -p /etc/openvpn/server
-    
-    # Generate OpenVPN config
-    cat > /etc/openvpn/server/server.conf <<EOF
-port 1194
-proto udp
-dev tun
-ca ca.crt
-cert server.crt
-key server.key
-dh dh2048.pem
-server 10.8.0.0 255.255.255.0
-ifconfig-pool-persist ipp.txt
-push "redirect-gateway def1 bypass-dhcp"
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
-keepalive 10 120
-tls-auth ta.key 0
-cipher AES-256-CBC
-auth SHA256
-comp-lzo
-user nobody
-group nogroup
-persist-key
-persist-tun
-status openvpn-status.log
-verb 3
-explicit-exit-notify 1
-EOF
-    
-    # Generate OpenVPN certificates (simple setup)
-    if [ ! -f /etc/openvpn/server/ca.crt ]; then
-        echo "Generating OpenVPN certificates..."
-        cd /etc/openvpn/server
-        
-        # Generate CA
-        openssl genrsa -out ca.key 2048
-        openssl req -new -x509 -days 3650 -key ca.key -out ca.crt -subj "/C=US/ST=CA/L=City/O=Organization/CN=VPN-CA"
-        
-        # Generate server certificate
-        openssl genrsa -out server.key 2048
-        openssl req -new -key server.key -out server.csr -subj "/C=US/ST=CA/L=City/O=Organization/CN=server"
-        openssl x509 -req -days 365 -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt
-        
-        # Generate DH parameters
-        openssl dhparam -out dh2048.pem 2048
-        
-        # Generate TLS auth key
-        openvpn --genkey --secret ta.key
-        
-        chmod 600 *.key
-        chmod 644 *.crt *.pem
-    fi
-    
     # Setup Xray service
     cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
@@ -305,7 +245,7 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
     
-    # Setup initial Xray config
+    # Setup initial Xray config with domain
     mkdir -p /etc/xray
     cat > /etc/xray/config.json <<EOF
 {
@@ -347,11 +287,11 @@ DROPBEAR_ECDSAKEY="/etc/dropbear/dropbear_ecdsa_host_key"
 DROPBEAR_RECEIVE_WINDOW=65536
 EOF
     
-    # Setup Nginx
+    # Setup Nginx with domain
     cat > /etc/nginx/sites-available/default <<EOF
 server {
     listen 80;
-    server_name _;
+    server_name $DOMAIN;
     
     location /vmess {
         proxy_pass http://127.0.0.1:443;
@@ -385,12 +325,12 @@ http_port 3128
 http_access allow all
 EOF
     
-    # Setup banner
+    # Setup banner with domain
     cat > /etc/ssh/banner <<EOF
 ===================================
     Welcome to VPN Server
 ===================================
-Host: $(curl -s ifconfig.me)
+Host: $DOMAIN
 Date: $(date)
 ===================================
 EOF
@@ -400,53 +340,45 @@ EOF
     
     # Enable and start services
     systemctl daemon-reload
-    systemctl enable xray nginx dropbear squid openvpn@server
-    systemctl start xray nginx dropbear squid openvpn@server
+    systemctl enable xray nginx dropbear squid
+    systemctl start xray nginx dropbear squid
     
     echo "Services installation completed!"
 }
 
-# Fungsi Menu
+# Fungsi Menu dengan layout 1 baris 2 kolom
 main_menu() {
     clear
-    echo -e "==================================="
+    get_vps_info
+    
+    echo -e "${CYAN}===================================${NC}"
+    echo -e "${CYAN}  VPS INFORMATION${NC}"
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " ${YELLOW}IP/Domain:${NC} $VPS_IP"
+    echo -e " ${YELLOW}RAM:${NC} $VPS_RAM  ${YELLOW}CPU:${NC} $VPS_CORE Core"
+    echo -e " ${YELLOW}OS:${NC} $VPS_OS"
+    echo -e " ${YELLOW}Uptime:${NC} $VPS_UPTIME  ${YELLOW}Load:${NC} $VPS_LOAD"
+    echo -e "${CYAN}===================================${NC}"
     echo -e " ${GREEN}✅ ACTIVE VPN ACCOUNTS${NC}"
-    echo -e "==================================="
-    echo -e " 🔐 SSH       : $(count_ssh) user aktif"
-    echo -e " 💠 VMess  : $(count_vmess) user aktif"
-    echo -e " 💠 VLESS   : $(count_vless) user aktif"
-    echo -e " 🔐 Trojan   : $(count_trojan) user aktif"
-    echo -e "==================================="
-    echo -e " 📋 SERVICE STATUS"
-    echo -e "==================================="
-    echo -e " 🔵 Nginx       : $(check_service nginx)"
-    echo -e " 🔵 Dropbear    : $(check_service dropbear)"
-    echo -e " 🔵 Xray Core   : $(check_service xray)"
-    echo -e " 🔵WebSocket : $(check_service websocat)"
-    echo -e " 🔵 Stunnel5    : $(check_service stunnel5)"
-    echo -e " 🔵 Squid       : $(check_service squid)"
-    echo -e " 🔵 OpenVPN     : $(check_service openvpn)"
-    echo -e "==================================="
-    echo -e " 📌 MAIN MENU"
-    echo -e "==================================="
-    echo -e " [1]  SSH Account "
-    echo -e " [2]  VLESS Account "
-    echo -e " [3]  VMess Account "
-    echo -e " [4]  Trojan Account "
-    echo -e " [5]  Change Domain"
-    echo -e " [6]  Change Banner"
-    echo -e " [7]  Check Port Status"
-    echo -e " [8]  Restart All Services"
-    echo -e " [9]  Show All Active Accounts"
-    echo -e " [10] Auto Expired Accounts"
-    echo -e " [11] Auto Renew Account"
-    echo -e " [12] System Information"
-    echo -e " [13] Speedtest"
-    echo -e " [14] Backup Config"
-    echo -e " [15] Auto Reboot"
-    echo -e "==================================="
-    echo -e " [0]  Exit"
-    echo -e "==================================="
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " 🔐 SSH: $(count_ssh)  💠 VMess: $(count_vmess)  💠 VLESS: $(count_vless)  🔐 Trojan: $(count_trojan)"
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " ${GREEN}📋 SERVICE STATUS${NC}"
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " 🔵 Nginx: $(check_service nginx)  🔵 Dropbear: $(check_service dropbear)  🔵 Xray: $(check_service xray)"
+    echo -e " 🔵 WebSocket: $(check_service websocat)  🔵 Stunnel: $(check_service stunnel5)  🔵 Squid: $(check_service squid)"
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " ${GREEN}📌 MAIN MENU${NC}"
+    echo -e "${CYAN}===================================${NC}"
+    echo -e " [1] SSH Account     [2] VLESS Account"
+    echo -e " [3] VMess Account   [4] Trojan Account"
+    echo -e " [5] Change Domain   [6] Change Banner"
+    echo -e " [7] Check Ports     [8] Restart Services"
+    echo -e " [9] Show Accounts   [10] Auto Expired"
+    echo -e " [11] Auto Renew     [12] System Info"
+    echo -e " [13] Speedtest      [14] Backup Config"
+    echo -e " [15] Auto Reboot    [0] Exit"
+    echo -e "${CYAN}===================================${NC}"
     read -rp "Select menu: " menu
     case $menu in
         1) manage_ssh ;;
@@ -729,20 +661,27 @@ list_trojan_account() {
 change_domain() {
     clear
     echo "==== Change Domain ===="
-    current_domain=$(grep -oP '(?<=Host: ).*' /etc/ssh/banner 2>/dev/null || curl -s ifconfig.me)
+    current_domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me)
     echo "Current Domain: $current_domain"
     read -rp "New Domain: " new_domain
     if [ -z "$new_domain" ]; then
         echo "Domain tidak boleh kosong!"; sleep 1; main_menu; return
     fi
+    
+    # Save new domain
+    echo "$new_domain" > /etc/vpn_domain
+    
     # Update banner
     sed -i "s/Host: .*/Host: $new_domain/" /etc/ssh/banner 2>/dev/null
+    
     # Update nginx config
     sed -i "s/server_name .*/server_name $new_domain;/" /etc/nginx/sites-available/default 2>/dev/null
+    
+    # Reload nginx (not restart to avoid downtime)
     systemctl reload nginx
+    
     echo "Domain berhasil diubah ke: $new_domain"
-    echo "Restart services untuk apply perubahan..."
-    systemctl restart xray dropbear
+    echo "Services updated successfully!"
     sleep 1; main_menu
 }
 
@@ -760,24 +699,29 @@ change_banner() {
 }
 check_ports() { ss -tuln; read -n1 -r -p "Press any key..."; main_menu; }
 restart_services() {
-    echo "Restarting all services..."
-    systemctl restart nginx dropbear xray squid 2>/dev/null
+    echo "Restarting all services safely..."
     
-    # Restart Stunnel5 if exists
+    # Restart core services
+    systemctl restart nginx 2>/dev/null
+    systemctl restart dropbear 2>/dev/null
+    systemctl restart xray 2>/dev/null
+    systemctl restart squid 2>/dev/null
+    
+    # Check and restart stunnel if exists
     if systemctl list-unit-files | grep -q stunnel5; then
         systemctl restart stunnel5 2>/dev/null
     elif systemctl list-unit-files | grep -q stunnel4; then
         systemctl restart stunnel4 2>/dev/null
     fi
     
-    # Restart OpenVPN if exists
+    # Check and restart openvpn if exists
     if systemctl list-unit-files | grep -q openvpn@server; then
         systemctl restart openvpn@server 2>/dev/null
     elif systemctl list-unit-files | grep -q openvpn; then
         systemctl restart openvpn 2>/dev/null
     fi
     
-    echo "Semua layanan direstart!"
+    echo "All services restarted successfully!"
     sleep 1; main_menu;
 }
 show_all_accounts() {
@@ -874,7 +818,7 @@ system_info() {
     echo "Uptime: $(uptime -p)"
     echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
     echo "IP Address: $(curl -s ifconfig.me)"
-    echo "Domain: $(grep -oP '(?<=Host: ).*' /etc/ssh/banner 2>/dev/null || echo 'Not set')"
+    echo "Domain: $(cat /etc/vpn_domain 2>/dev/null || echo 'Not set')"
     read -n1 -r -p "Press any key..."; main_menu
 }
 
@@ -1018,6 +962,7 @@ monitor_bandwidth() {
 # Jalankan instalasi jika belum pernah
 if [ ! -f /etc/vpn_installed ]; then
     echo "[INFO] Instalasi layanan VPN..."
+    input_domain # Call input_domain here
     install_services
     touch /etc/vpn_installed
     echo "[INFO] Instalasi selesai!"
