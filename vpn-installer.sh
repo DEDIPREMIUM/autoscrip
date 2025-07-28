@@ -3,6 +3,11 @@
 #  All-in-One Auto Installer VPN
 # ===================================
 # Support: SSH, VMess, VLESS, Trojan, Nginx, Dropbear, Xray, WebSocket, Stunnel5, Squid, OpenVPN
+# Features: Auto Expired, Auto Renew, Custom Domain, Banner, Backup, Monitoring, Speedtest
+# Compatible: HTTP Injector, HTTP Custom, V2RayBox, V2Ray, etc.
+# ===================================
+# Author: VPN Script
+# Version: 2.0
 # ===================================
 
 # Cek root
@@ -15,7 +20,21 @@ fi
 GREEN="\e[32m"
 RED="\e[31m"
 YELLOW="\e[33m"
+BLUE="\e[34m"
 NC="\e[0m"
+
+# Banner
+clear
+echo -e "${BLUE}"
+echo "==================================="
+echo "  All-in-One Auto Installer VPN"
+echo "==================================="
+echo "  Support: SSH, VMess, VLESS, Trojan"
+echo "  Features: Auto Expired, Auto Renew"
+echo "  Compatible: HTTP Injector, V2RayBox"
+echo "==================================="
+echo -e "${NC}"
+sleep 2
 
 # Fungsi Cek Status Layanan
 check_service() {
@@ -38,7 +57,7 @@ count_trojan() {
 
 # Fungsi Instalasi Layanan
 install_services() {
-    apt update && apt install -y nginx dropbear stunnel4 squid openvpn curl socat xz-utils wget gnupg2 lsb-release
+    apt update && apt install -y nginx dropbear stunnel4 squid openvpn curl socat xz-utils wget gnupg2 lsb-release jq
     # Xray Core
     if ! command -v xray &>/dev/null; then
         wget -O /usr/local/bin/xray https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
@@ -59,7 +78,102 @@ install_services() {
         wget -O /usr/local/bin/websocat https://github.com/vi/websocat/releases/download/v1.11.0/websocat_amd64-linux
         chmod +x /usr/local/bin/websocat
     fi
+    
+    # Setup Xray service
+    cat > /etc/systemd/system/xray.service <<EOF
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Setup Dropbear
+    cat > /etc/default/dropbear <<EOF
+NO_START=0
+DROPBEAR_PORT=443
+DROPBEAR_EXTRA_ARGS=
+DROPBEAR_BANNER="/etc/ssh/banner"
+DROPBEAR_RSAKEY="/etc/dropbear/dropbear_rsa_host_key"
+DROPBEAR_DSSKEY="/etc/dropbear/dropbear_dss_host_key"
+DROPBEAR_ECDSAKEY="/etc/dropbear/dropbear_ecdsa_host_key"
+DROPBEAR_RECEIVE_WINDOW=65536
+EOF
+    
+    # Setup Nginx
+    cat > /etc/nginx/sites-available/default <<EOF
+server {
+    listen 80;
+    server_name _;
+    
+    location /vmess {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+    
+    location /vless {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+    
+    location /trojan {
+        proxy_pass http://127.0.0.1:9443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
 }
+EOF
+    
+    # Setup Squid
+    cat > /etc/squid/squid.conf <<EOF
+http_port 3128
+http_access allow all
+EOF
+    
+    # Setup banner
+    cat > /etc/ssh/banner <<EOF
+===================================
+    Welcome to VPN Server
+===================================
+Host: $(curl -s ifconfig.me)
+Date: $(date)
+===================================
+EOF
+    
+    # Setup cron job for auto expired
+    (crontab -l 2>/dev/null; echo "0 2 * * * /bin/bash /root/vpn-installer.sh --clean-expired") | crontab -
+    
+    # Enable and start services
+    systemctl daemon-reload
+    systemctl enable xray nginx dropbear squid
+    systemctl start xray nginx dropbear squid
+}
+
+# Check if script is called with --clean-expired argument
+if [[ "$1" == "--clean-expired" ]]; then
+    clean_expired_accounts
+    exit 0
+fi
 
 # Fungsi Menu
 main_menu() {
@@ -93,6 +207,12 @@ main_menu() {
     echo -e " [7]  Check Port Status"
     echo -e " [8]  Restart All Services"
     echo -e " [9]  Show All Active Accounts"
+    echo -e " [10] Auto Expired Accounts"
+    echo -e " [11] Auto Renew Account"
+    echo -e " [12] System Information"
+    echo -e " [13] Speedtest"
+    echo -e " [14] Backup Config"
+    echo -e " [15] Auto Reboot"
     echo -e "==================================="
     echo -e " [0]  Exit"
     echo -e "==================================="
@@ -107,6 +227,12 @@ main_menu() {
         7) check_ports ;;
         8) restart_services ;;
         9) show_all_accounts ;;
+        10) clean_expired_accounts ;;
+        11) renew_account ;;
+        12) system_info ;;
+        13) speed_test ;;
+        14) backup_config ;;
+        15) auto_reboot ;;
         0) exit 0 ;;
         *) echo "Invalid!"; sleep 1; main_menu ;;
     esac
@@ -369,8 +495,38 @@ list_trojan_account() {
     read -n1 -r -p "Press any key..."; manage_trojan
 }
 
-change_domain() { echo "Fitur Change Domain belum diimplementasi."; read -n1 -r -p "Press any key..."; main_menu; }
-change_banner() { echo "Fitur Change Banner belum diimplementasi."; read -n1 -r -p "Press any key..."; main_menu; }
+change_domain() {
+    clear
+    echo "==== Change Domain ===="
+    current_domain=$(grep -oP '(?<=Host: ).*' /etc/ssh/banner 2>/dev/null || curl -s ifconfig.me)
+    echo "Current Domain: $current_domain"
+    read -rp "New Domain: " new_domain
+    if [ -z "$new_domain" ]; then
+        echo "Domain tidak boleh kosong!"; sleep 1; main_menu; return
+    fi
+    # Update banner
+    sed -i "s/Host: .*/Host: $new_domain/" /etc/ssh/banner 2>/dev/null
+    # Update nginx config
+    sed -i "s/server_name .*/server_name $new_domain;/" /etc/nginx/sites-available/default 2>/dev/null
+    systemctl reload nginx
+    echo "Domain berhasil diubah ke: $new_domain"
+    echo "Restart services untuk apply perubahan..."
+    systemctl restart xray dropbear
+    sleep 1; main_menu
+}
+
+change_banner() {
+    clear
+    echo "==== Change Banner ===="
+    read -rp "Masukkan banner baru: " banner
+    if [ -z "$banner" ]; then
+        echo "Banner tidak boleh kosong!"; sleep 1; main_menu; return
+    fi
+    echo "$banner" > /etc/ssh/banner
+    echo "Banner berhasil diubah!"
+    systemctl restart ssh dropbear
+    sleep 1; main_menu
+}
 check_ports() { ss -tuln; read -n1 -r -p "Press any key..."; main_menu; }
 restart_services() {
     systemctl restart nginx dropbear xray stunnel5 squid openvpn 2>/dev/null
@@ -382,6 +538,296 @@ show_all_accounts() {
     echo "== VLESS =="; cat /etc/xray/vless_account 2>/dev/null || echo "-";
     echo "== Trojan =="; cat /etc/xray/trojan_account 2>/dev/null || echo "-";
     read -n1 -r -p "Press any key..."; main_menu;
+}
+
+# Fungsi Auto Expired
+clean_expired_accounts() {
+    today=$(date +%Y-%m-%d)
+    # SSH
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            if [[ "$expdate" < "$today" ]]; then
+                userdel "$user" 2>/dev/null
+                sed -i "/^### $user /d" /etc/ssh/ssh_account
+                echo "SSH Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/ssh/ssh_account
+    
+    # VMess
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            uuid="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                jq "(.inbounds[0].settings.clients) |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                sed -i "/^### $user /d" /etc/xray/vmess_account
+                echo "VMess Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/vmess_account
+    
+    # VLESS
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            uuid="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                idx=$(jq '.inbounds | map(.protocol == "vless") | index(true)' /etc/xray/config.json)
+                jq ".inbounds[$idx].settings.clients |= map(select(.id != \"$uuid\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                sed -i "/^### $user /d" /etc/xray/vless_account
+                echo "VLESS Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/vless_account
+    
+    # Trojan
+    while IFS= read -r line; do
+        if [[ $line =~ ^###[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+            user="${BASH_REMATCH[1]}"
+            expdate="${BASH_REMATCH[2]}"
+            pass="${BASH_REMATCH[3]}"
+            if [[ "$expdate" < "$today" ]]; then
+                idx=$(jq '.inbounds | map(.protocol == "trojan") | index(true)' /etc/xray/config.json)
+                jq ".inbounds[$idx].settings.clients |= map(select(.password != \"$pass\"))" /etc/xray/config.json > /tmp/config.json && mv /tmp/config.json /etc/xray/config.json
+                sed -i "/^### $user /d" /etc/xray/trojan_account
+                echo "Trojan Account $user expired and deleted"
+            fi
+        fi
+    done < /etc/xray/trojan_account
+    
+    systemctl restart xray
+}
+
+# Fungsi Auto Renew
+renew_account() {
+    clear
+    echo "==== Auto Renew Account ===="
+    echo "1. Renew SSH Account"
+    echo "2. Renew VMess Account"
+    echo "3. Renew VLESS Account"
+    echo "4. Renew Trojan Account"
+    echo "0. Back"
+    read -rp "Pilih menu: " renewmenu
+    case $renewmenu in
+        1) renew_ssh ;;
+        2) renew_vmess ;;
+        3) renew_vless ;;
+        4) renew_trojan ;;
+        0) main_menu ;;
+        *) echo "Invalid!"; sleep 1; renew_account ;;
+    esac
+}
+
+renew_ssh() {
+    read -rp "Username: " user
+    read -rp "Tambah hari: " days
+    if ! id "$user" &>/dev/null; then
+        echo "User tidak ditemukan!"; sleep 1; renew_account; return
+    fi
+    current_exp=$(chage -l $user | grep "Account expires" | awk -F": " '{print $2}')
+    new_exp=$(date -d "$current_exp + $days days" +%Y-%m-%d)
+    chage -E $new_exp $user
+    sed -i "s/^### $user .*/### $user $new_exp/" /etc/ssh/ssh_account
+    echo "SSH Account $user renewed until $new_exp"
+    sleep 1; renew_account
+}
+
+renew_vmess() {
+    read -rp "Username: " user
+    read -rp "Tambah hari: " days
+    if ! grep -q "^### $user " /etc/xray/vmess_account; then
+        echo "User tidak ditemukan!"; sleep 1; renew_account; return
+    fi
+    current_exp=$(grep "^### $user " /etc/xray/vmess_account | awk '{print $2}')
+    new_exp=$(date -d "$current_exp + $days days" +%Y-%m-%d)
+    sed -i "s/^### $user .*/### $user $new_exp/" /etc/xray/vmess_account
+    echo "VMess Account $user renewed until $new_exp"
+    sleep 1; renew_account
+}
+
+renew_vless() {
+    read -rp "Username: " user
+    read -rp "Tambah hari: " days
+    if ! grep -q "^### $user " /etc/xray/vless_account; then
+        echo "User tidak ditemukan!"; sleep 1; renew_account; return
+    fi
+    current_exp=$(grep "^### $user " /etc/xray/vless_account | awk '{print $2}')
+    new_exp=$(date -d "$current_exp + $days days" +%Y-%m-%d)
+    sed -i "s/^### $user .*/### $user $new_exp/" /etc/xray/vless_account
+    echo "VLESS Account $user renewed until $new_exp"
+    sleep 1; renew_account
+}
+
+renew_trojan() {
+    read -rp "Username: " user
+    read -rp "Tambah hari: " days
+    if ! grep -q "^### $user " /etc/xray/trojan_account; then
+        echo "User tidak ditemukan!"; sleep 1; renew_account; return
+    fi
+    current_exp=$(grep "^### $user " /etc/xray/trojan_account | awk '{print $2}')
+    new_exp=$(date -d "$current_exp + $days days" +%Y-%m-%d)
+    sed -i "s/^### $user .*/### $user $new_exp/" /etc/xray/trojan_account
+    echo "Trojan Account $user renewed until $new_exp"
+    sleep 1; renew_account
+}
+
+# Fungsi System Information
+system_info() {
+    clear
+    echo "==== System Information ===="
+    echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+    echo "Kernel: $(uname -r)"
+    echo "Architecture: $(uname -m)"
+    echo "CPU: $(grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2 | xargs)"
+    echo "RAM: $(free -h | grep Mem | awk '{print $2}')"
+    echo "Disk: $(df -h / | tail -1 | awk '{print $2}')"
+    echo "Uptime: $(uptime -p)"
+    echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+    echo "IP Address: $(curl -s ifconfig.me)"
+    echo "Domain: $(grep -oP '(?<=Host: ).*' /etc/ssh/banner 2>/dev/null || echo 'Not set')"
+    read -n1 -r -p "Press any key..."; main_menu
+}
+
+# Fungsi Speedtest
+speed_test() {
+    clear
+    echo "==== Speedtest ===="
+    if ! command -v speedtest-cli &>/dev/null; then
+        echo "Installing speedtest-cli..."
+        apt install -y speedtest-cli
+    fi
+    echo "Testing download/upload speed..."
+    speedtest-cli --simple
+    read -n1 -r -p "Press any key..."; main_menu
+}
+
+# Fungsi Backup Config
+backup_config() {
+    clear
+    echo "==== Backup Configuration ===="
+    backup_dir="/root/vpn_backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    # Backup config files
+    cp -r /etc/xray "$backup_dir/"
+    cp -r /etc/ssh "$backup_dir/"
+    cp /etc/nginx/sites-available/default "$backup_dir/" 2>/dev/null
+    cp /etc/dropbear/dropbear.conf "$backup_dir/" 2>/dev/null
+    cp /etc/squid/squid.conf "$backup_dir/" 2>/dev/null
+    
+    # Backup account files
+    cp /etc/ssh/ssh_account "$backup_dir/" 2>/dev/null
+    cp /etc/xray/vmess_account "$backup_dir/" 2>/dev/null
+    cp /etc/xray/vless_account "$backup_dir/" 2>/dev/null
+    cp /etc/xray/trojan_account "$backup_dir/" 2>/dev/null
+    
+    # Create restore script
+    cat > "$backup_dir/restore.sh" <<'EOF'
+#!/bin/bash
+# Restore VPN Configuration
+if [[ $EUID -ne 0 ]]; then
+   echo "Script harus dijalankan sebagai root!" 
+   exit 1
+fi
+
+echo "Restoring VPN configuration..."
+cp -r xray/* /etc/xray/
+cp -r ssh/* /etc/ssh/
+cp default /etc/nginx/sites-available/ 2>/dev/null
+cp dropbear.conf /etc/dropbear/ 2>/dev/null
+cp squid.conf /etc/squid/ 2>/dev/null
+
+systemctl restart xray nginx dropbear squid
+echo "Restore completed!"
+EOF
+    chmod +x "$backup_dir/restore.sh"
+    
+    # Create archive
+    tar -czf "$backup_dir.tar.gz" -C /root "$(basename $backup_dir)"
+    rm -rf "$backup_dir"
+    
+    echo "Backup saved to: $backup_dir.tar.gz"
+    echo "To restore: tar -xzf $backup_dir.tar.gz && cd $(basename $backup_dir) && ./restore.sh"
+    read -n1 -r -p "Press any key..."; main_menu
+}
+
+# Fungsi Auto Reboot
+auto_reboot() {
+    clear
+    echo "==== Auto Reboot ===="
+    echo "1. Reboot Now"
+    echo "2. Schedule Reboot (in minutes)"
+    echo "3. Cancel Scheduled Reboot"
+    echo "0. Back"
+    read -rp "Pilih menu: " rebootmenu
+    case $rebootmenu in
+        1) echo "Rebooting in 5 seconds..."; sleep 5; reboot ;;
+        2) 
+            read -rp "Reboot in minutes: " minutes
+            if [[ $minutes =~ ^[0-9]+$ ]]; then
+                echo "System will reboot in $minutes minutes"
+                shutdown -r +$minutes
+            else
+                echo "Invalid input!"; sleep 1
+            fi
+            auto_reboot
+            ;;
+        3) shutdown -c; echo "Scheduled reboot cancelled"; sleep 1; auto_reboot ;;
+        0) main_menu ;;
+        *) echo "Invalid!"; sleep 1; auto_reboot ;;
+    esac
+}
+
+# Fungsi Install SSL Certificate
+install_ssl() {
+    clear
+    echo "==== Install SSL Certificate ===="
+    read -rp "Domain: " domain
+    if [ -z "$domain" ]; then
+        echo "Domain tidak boleh kosong!"; sleep 1; main_menu; return
+    fi
+    
+    # Install certbot
+    if ! command -v certbot &>/dev/null; then
+        apt install -y certbot python3-certbot-nginx
+    fi
+    
+    # Get SSL certificate
+    certbot --nginx -d $domain --non-interactive --agree-tos --email admin@$domain
+    
+    # Update Xray config to use SSL
+    if [ -f "/etc/letsencrypt/live/$domain/fullchain.pem" ]; then
+        # Update config to use SSL certificates
+        echo "SSL certificate installed successfully!"
+        echo "Please update Xray config manually to use SSL certificates"
+    else
+        echo "Failed to install SSL certificate"
+    fi
+    
+    read -n1 -r -p "Press any key..."; main_menu
+}
+
+# Fungsi Monitoring Bandwidth
+monitor_bandwidth() {
+    clear
+    echo "==== Bandwidth Monitoring ===="
+    echo "Network interfaces:"
+    ip -br addr show
+    echo ""
+    echo "Current bandwidth usage:"
+    if command -v iftop &>/dev/null; then
+        iftop -t -s 10
+    else
+        echo "iftop not installed. Installing..."
+        apt install -y iftop
+        iftop -t -s 10
+    fi
+    read -n1 -r -p "Press any key..."; main_menu
 }
 
 # Jalankan instalasi jika belum pernah
