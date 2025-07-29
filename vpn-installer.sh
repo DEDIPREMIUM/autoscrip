@@ -544,7 +544,8 @@ main_menu() {
     echo -e " [9] Show Accounts   [10] Auto Expired"
     echo -e " [11] Auto Renew     [12] System Info"
     echo -e " [13] Speedtest      [14] Backup Config"
-    echo -e " [15] Auto Reboot    [0] Exit"
+    echo -e " [15] Auto Reboot    [16] Formatted Display"
+    echo -e " [0] Exit"
     echo -e "${CYAN}===================================${NC}"
     read -rp "Select menu: " menu
     case $menu in
@@ -563,6 +564,7 @@ main_menu() {
         13) speed_test ;;
         14) backup_config ;;
         15) auto_reboot ;;
+        16) formatted_display ;;
         0) exit 0 ;;
         *) echo "Invalid!"; sleep 1; main_menu ;;
     esac
@@ -596,14 +598,52 @@ add_ssh_account() {
     useradd -e $(date -d "+$exp days" +%Y-%m-%d) -s /bin/false -M $user
     echo -e "$pass\n$pass" | passwd $user &>/dev/null
     expdate=$(chage -l $user | grep "Account expires" | awk -F": " '{print $2}')
-    echo "### $user $expdate" >> /etc/ssh/ssh_account
+    echo "### $user $expdate $pass" >> /etc/ssh/ssh_account
     echo "Akun SSH berhasil dibuat!"
     echo "Host/IP: $(curl -s ifconfig.me)"
     echo "Username: $user"
     echo "Password: $pass"
     echo "Port: 22, 443 (Dropbear/OpenSSH)"
     echo "Expired: $expdate"
-    read -n1 -r -p "Press any key..."; manage_ssh
+    
+    echo ""
+    echo -e "${YELLOW}Press any key to see formatted display...${NC}"
+    read -n1 -r
+    
+    # Show formatted display
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "yourdomain.com")
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${WHITE}     SSH OPENVPN${NC}"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Remark      :${NC} $user"
+    echo -e "${CYAN}Username    :${NC} $user"
+    echo -e "${CYAN}Password    :${NC} $pass"
+    echo -e "${CYAN}Limit IP    :${NC} 1 Device"
+    echo -e "${CYAN}Domain      :${NC} $domain"
+    echo -e "${CYAN}ISP         :${NC} Rumahweb Indonesia"
+    echo -e "${CYAN}OpenSSH     :${NC} 22, 80, 443"
+    echo -e "${CYAN}SSH WS      :${NC} 80, 8080, 8880, 2082"
+    echo -e "${CYAN}SSL/TLS     :${NC} 443"
+    echo -e "${CYAN}OVPN UDP    :${NC} 2200"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Port 80     :${NC} $domain:80@$user:$pass"
+    echo -e "${CYAN}Port 443    :${NC} $domain:443@$user:$pass"
+    echo -e "${CYAN}Udp Custom  :${NC} $domain:1-65535@$user:$pass"
+    echo -e "${CYAN}OpenVpn     :${NC} https://$domain:81/"
+    echo -e "${CYAN}Account     :${NC} https://$domain:81/ssh-$user.txt"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload WS  :${NC} GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload TLS :${NC} GET wss://$domain/ HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload ENCD:${NC} HEAD / HTTP/1.1[crlf]Host: Masukan_Bug[crlf][crlf]PATCH / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf][split]HTTP/ 1[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Expiry in  :${NC} $expdate"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${YELLOW}Press any key to continue...${NC}"
+    read -n1 -r
+    manage_ssh
 }
 
 del_ssh_account() {
@@ -674,7 +714,38 @@ add_vless_account() {
     vless_link_2087="vless://$uuid@$domain:2087?encryption=none&security=none&type=ws&host=$domain&path=%2Fvless#${user}-DIR2087"
     echo "Port 2087 (Direct): $vless_link_2087"
     
-    read -n1 -r -p "Press any key..."; manage_vless
+    echo ""
+    echo -e "${YELLOW}Press any key to see formatted display...${NC}"
+    read -n1 -r
+    
+    # Show formatted display
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}        VLESS Account${NC}"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Remarks        :${NC} $user"
+    echo -e "${CYAN}Domain         :${NC} $domain"
+    echo -e "${CYAN}Wildcard       :${NC} (bug.com).$domain"
+    echo -e "${CYAN}Port TLS       :${NC} 443"
+    echo -e "${CYAN}Port none TLS  :${NC} 80"
+    echo -e "${CYAN}Port gRPC      :${NC} 443"
+    echo -e "${CYAN}id             :${NC} $uuid"
+    echo -e "${CYAN}Encryption     :${NC} none"
+    echo -e "${CYAN}Network        :${NC} ws"
+    echo -e "${CYAN}Path           :${NC} /vless"
+    echo -e "${CYAN}Path gRPC      :${NC} vless-grpc"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link TLS       :${NC} vless://$uuid@$domain:443?path=/vless&security=tls&encryption=none&type=ws#$user"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link none TLS  :${NC} vless://$uuid@$domain:80?path=/vless&encryption=none&type=ws#$user"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link gRPC      :${NC} vless://$uuid@$domain:443?mode=gun&security=tls&encryption=none&type=grpc&serviceName=vless-grpc&sni=bug.com#$user"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Expired On     :${NC} $expdate"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Press any key to back on VLESS${NC}"
+    read -n1 -r
+    manage_vless
 }
 
 del_vless_account() {
@@ -1208,6 +1279,343 @@ if [ ! -f /etc/xray/config.json ]; then
 }
 EOF
 fi
+
+# Function to display formatted accounts
+formatted_display() {
+    clear
+    echo -e "${BLUE}===================================${NC}"
+    echo -e "${BLUE}     Formatted Account Display${NC}"
+    echo -e "${BLUE}===================================${NC}"
+    echo ""
+    echo -e "${CYAN}[1]${NC} Display VLESS Account"
+    echo -e "${CYAN}[2]${NC} Display SSH/OpenVPN Account"
+    echo -e "${CYAN}[3]${NC} Display VMess Account"
+    echo -e "${CYAN}[4]${NC} Display Trojan Account"
+    echo -e "${CYAN}[5]${NC} List All Accounts"
+    echo -e "${CYAN}[0]${NC} Back to Main Menu"
+    echo ""
+    read -rp "Choose menu: " display_choice
+    
+    case $display_choice in
+        1) display_vless_formatted ;;
+        2) display_ssh_formatted ;;
+        3) display_vmess_formatted ;;
+        4) display_trojan_formatted ;;
+        5) list_all_formatted ;;
+        0) main_menu ;;
+        *) echo -e "${RED}Invalid choice!${NC}"; sleep 1; formatted_display ;;
+    esac
+}
+
+# Function to display VLESS account in formatted style
+display_vless_formatted() {
+    clear
+    echo -e "${BLUE}==== VLESS Account Display ====${NC}"
+    echo ""
+    
+    if [ ! -f "/etc/xray/vless_account" ]; then
+        echo -e "${RED}No VLESS accounts found!${NC}"
+        read -n1 -r -p "Press any key..."; formatted_display; return
+    fi
+    
+    echo -e "${CYAN}Available VLESS accounts:${NC}"
+    echo ""
+    cat /etc/xray/vless_account | while IFS=' ' read -r mark user expdate uuid; do
+        if [ "$mark" = "###" ]; then
+            echo -e "${YELLOW}$user${NC} - Expires: $expdate"
+        fi
+    done
+    echo ""
+    read -rp "Enter username to display: " username
+    
+    # Get account info
+    account_line=$(grep "^### $username " /etc/xray/vless_account)
+    if [ -z "$account_line" ]; then
+        echo -e "${RED}User not found!${NC}"
+        sleep 1; display_vless_formatted; return
+    fi
+    
+    # Parse account info
+    expdate=$(echo "$account_line" | awk '{print $3}')
+    uuid=$(echo "$account_line" | awk '{print $4}')
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "yourdomain.com")
+    
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}        VLESS Account${NC}"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Remarks        :${NC} $username"
+    echo -e "${CYAN}Domain         :${NC} $domain"
+    echo -e "${CYAN}Wildcard       :${NC} (bug.com).$domain"
+    echo -e "${CYAN}Port TLS       :${NC} 443"
+    echo -e "${CYAN}Port none TLS  :${NC} 80"
+    echo -e "${CYAN}Port gRPC      :${NC} 443"
+    echo -e "${CYAN}id             :${NC} $uuid"
+    echo -e "${CYAN}Encryption     :${NC} none"
+    echo -e "${CYAN}Network        :${NC} ws"
+    echo -e "${CYAN}Path           :${NC} /vless"
+    echo -e "${CYAN}Path gRPC      :${NC} vless-grpc"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link TLS       :${NC} vless://$uuid@$domain:443?path=/vless&security=tls&encryption=none&type=ws#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link none TLS  :${NC} vless://$uuid@$domain:80?path=/vless&encryption=none&type=ws#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link gRPC      :${NC} vless://$uuid@$domain:443?mode=gun&security=tls&encryption=none&type=grpc&serviceName=vless-grpc&sni=bug.com#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Expired On     :${NC} $expdate"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Press any key to back on VLESS${NC}"
+    read -n1 -r
+    display_vless_formatted
+}
+
+# Function to display SSH account in formatted style
+display_ssh_formatted() {
+    clear
+    echo -e "${BLUE}==== SSH/OpenVPN Account Display ====${NC}"
+    echo ""
+    
+    if [ ! -f "/etc/ssh/ssh_account" ]; then
+        echo -e "${RED}No SSH accounts found!${NC}"
+        read -n1 -r -p "Press any key..."; formatted_display; return
+    fi
+    
+    echo -e "${CYAN}Available SSH accounts:${NC}"
+    echo ""
+    cat /etc/ssh/ssh_account | while IFS=' ' read -r mark user expdate pass; do
+        if [ "$mark" = "###" ]; then
+            echo -e "${YELLOW}$user${NC} - Expires: $expdate"
+        fi
+    done
+    echo ""
+    read -rp "Enter username to display: " username
+    
+    # Get account info
+    account_line=$(grep "^### $username " /etc/ssh/ssh_account)
+    if [ -z "$account_line" ]; then
+        echo -e "${RED}User not found!${NC}"
+        sleep 1; display_ssh_formatted; return
+    fi
+    
+    # Parse account info
+    expdate=$(echo "$account_line" | awk '{print $3}')
+    pass=$(echo "$account_line" | awk '{print $4}')
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "yourdomain.com")
+    
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${WHITE}     SSH OPENVPN${NC}"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Remark      :${NC} $username"
+    echo -e "${CYAN}Username    :${NC} $username"
+    echo -e "${CYAN}Password    :${NC} $pass"
+    echo -e "${CYAN}Limit IP    :${NC} 1 Device"
+    echo -e "${CYAN}Domain      :${NC} $domain"
+    echo -e "${CYAN}ISP         :${NC} Rumahweb Indonesia"
+    echo -e "${CYAN}OpenSSH     :${NC} 22, 80, 443"
+    echo -e "${CYAN}SSH WS      :${NC} 80, 8080, 8880, 2082"
+    echo -e "${CYAN}SSL/TLS     :${NC} 443"
+    echo -e "${CYAN}OVPN UDP    :${NC} 2200"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Port 80     :${NC} $domain:80@$username:$pass"
+    echo -e "${CYAN}Port 443    :${NC} $domain:443@$username:$pass"
+    echo -e "${CYAN}Udp Custom  :${NC} $domain:1-65535@$username:$pass"
+    echo -e "${CYAN}OpenVpn     :${NC} https://$domain:81/"
+    echo -e "${CYAN}Account     :${NC} https://$domain:81/ssh-$username.txt"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload WS  :${NC} GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload TLS :${NC} GET wss://$domain/ HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Payload ENCD:${NC} HEAD / HTTP/1.1[crlf]Host: Masukan_Bug[crlf][crlf]PATCH / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf][split]HTTP/ 1[crlf][crlf]"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${CYAN}Expiry in  :${NC} $expdate"
+    echo -e "${WHITE}◇━━━━━━━━━━━━━━━━━◇${NC}"
+    echo -e "${YELLOW}Press any key to continue...${NC}"
+    read -n1 -r
+    display_ssh_formatted
+}
+
+# Function to display VMess account in formatted style
+display_vmess_formatted() {
+    clear
+    echo -e "${BLUE}==== VMess Account Display ====${NC}"
+    echo ""
+    
+    if [ ! -f "/etc/xray/vmess_account" ]; then
+        echo -e "${RED}No VMess accounts found!${NC}"
+        read -n1 -r -p "Press any key..."; formatted_display; return
+    fi
+    
+    echo -e "${CYAN}Available VMess accounts:${NC}"
+    echo ""
+    cat /etc/xray/vmess_account | while IFS=' ' read -r mark user expdate uuid; do
+        if [ "$mark" = "###" ]; then
+            echo -e "${YELLOW}$user${NC} - Expires: $expdate"
+        fi
+    done
+    echo ""
+    read -rp "Enter username to display: " username
+    
+    # Get account info
+    account_line=$(grep "^### $username " /etc/xray/vmess_account)
+    if [ -z "$account_line" ]; then
+        echo -e "${RED}User not found!${NC}"
+        sleep 1; display_vmess_formatted; return
+    fi
+    
+    # Parse account info
+    expdate=$(echo "$account_line" | awk '{print $3}')
+    uuid=$(echo "$account_line" | awk '{print $4}')
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "yourdomain.com")
+    
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}        VMess Account${NC}"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Remarks        :${NC} $username"
+    echo -e "${CYAN}Domain         :${NC} $domain"
+    echo -e "${CYAN}Wildcard       :${NC} (bug.com).$domain"
+    echo -e "${CYAN}Port TLS       :${NC} 443"
+    echo -e "${CYAN}Port none TLS  :${NC} 80"
+    echo -e "${CYAN}Port gRPC      :${NC} 443"
+    echo -e "${CYAN}id             :${NC} $uuid"
+    echo -e "${CYAN}AlterId        :${NC} 0"
+    echo -e "${CYAN}Security       :${NC} auto"
+    echo -e "${CYAN}Network        :${NC} ws"
+    echo -e "${CYAN}Path           :${NC} /vmess"
+    echo -e "${CYAN}Path gRPC      :${NC} vmess-grpc"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link TLS       :${NC} vmess://$(echo "{\"v\":\"2\",\"ps\":\"$username-CF443\",\"add\":\"$domain\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"tls\"}" | base64 -w 0)"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link none TLS  :${NC} vmess://$(echo "{\"v\":\"2\",\"ps\":\"$username-CF80\",\"add\":\"$domain\",\"port\":\"80\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"/vmess\",\"tls\":\"none\"}" | base64 -w 0)"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link gRPC      :${NC} vmess://$(echo "{\"v\":\"2\",\"ps\":\"$username-CF443\",\"add\":\"$domain\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"grpc\",\"type\":\"gun\",\"host\":\"$domain\",\"path\":\"vmess-grpc\",\"tls\":\"tls\"}" | base64 -w 0)"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Expired On     :${NC} $expdate"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Press any key to back on VMess${NC}"
+    read -n1 -r
+    display_vmess_formatted
+}
+
+# Function to display Trojan account in formatted style
+display_trojan_formatted() {
+    clear
+    echo -e "${BLUE}==== Trojan Account Display ====${NC}"
+    echo ""
+    
+    if [ ! -f "/etc/xray/trojan_account" ]; then
+        echo -e "${RED}No Trojan accounts found!${NC}"
+        read -n1 -r -p "Press any key..."; formatted_display; return
+    fi
+    
+    echo -e "${CYAN}Available Trojan accounts:${NC}"
+    echo ""
+    cat /etc/xray/trojan_account | while IFS=' ' read -r mark user expdate pass; do
+        if [ "$mark" = "###" ]; then
+            echo -e "${YELLOW}$user${NC} - Expires: $expdate"
+        fi
+    done
+    echo ""
+    read -rp "Enter username to display: " username
+    
+    # Get account info
+    account_line=$(grep "^### $username " /etc/xray/trojan_account)
+    if [ -z "$account_line" ]; then
+        echo -e "${RED}User not found!${NC}"
+        sleep 1; display_trojan_formatted; return
+    fi
+    
+    # Parse account info
+    expdate=$(echo "$account_line" | awk '{print $3}')
+    pass=$(echo "$account_line" | awk '{print $4}')
+    domain=$(cat /etc/vpn_domain 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "yourdomain.com")
+    
+    clear
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}       Trojan Account${NC}"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Remarks        :${NC} $username"
+    echo -e "${CYAN}Domain         :${NC} $domain"
+    echo -e "${CYAN}Wildcard       :${NC} (bug.com).$domain"
+    echo -e "${CYAN}Port TLS       :${NC} 443"
+    echo -e "${CYAN}Port none TLS  :${NC} 80"
+    echo -e "${CYAN}Port gRPC      :${NC} 443"
+    echo -e "${CYAN}Password       :${NC} $pass"
+    echo -e "${CYAN}Network        :${NC} ws"
+    echo -e "${CYAN}Path           :${NC} /trojan"
+    echo -e "${CYAN}Path gRPC      :${NC} trojan-grpc"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link TLS       :${NC} trojan://$pass@$domain:443?type=ws&security=tls&host=$domain&path=%2Ftrojan#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link none TLS  :${NC} trojan://$pass@$domain:80?type=ws&security=none&host=$domain&path=%2Ftrojan#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Link gRPC      :${NC} trojan://$pass@$domain:443?type=grpc&security=tls&host=$domain&serviceName=trojan-grpc#$username"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Expired On     :${NC} $expdate"
+    echo -e "${WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Press any key to back on Trojan${NC}"
+    read -n1 -r
+    display_trojan_formatted
+}
+
+# Function to list all accounts in formatted style
+list_all_formatted() {
+    clear
+    echo -e "${BLUE}==== All Active Accounts ====${NC}"
+    echo ""
+    
+    echo -e "${CYAN}SSH Accounts:${NC}"
+    if [ -f "/etc/ssh/ssh_account" ]; then
+        cat /etc/ssh/ssh_account | while IFS=' ' read -r mark user expdate pass; do
+            if [ "$mark" = "###" ]; then
+                echo -e "  ${YELLOW}$user${NC} - Expires: $expdate"
+            fi
+        done
+    else
+        echo -e "  ${RED}No SSH accounts${NC}"
+    fi
+    echo ""
+    
+    echo -e "${CYAN}VLESS Accounts:${NC}"
+    if [ -f "/etc/xray/vless_account" ]; then
+        cat /etc/xray/vless_account | while IFS=' ' read -r mark user expdate uuid; do
+            if [ "$mark" = "###" ]; then
+                echo -e "  ${YELLOW}$user${NC} - Expires: $expdate"
+            fi
+        done
+    else
+        echo -e "  ${RED}No VLESS accounts${NC}"
+    fi
+    echo ""
+    
+    echo -e "${CYAN}VMess Accounts:${NC}"
+    if [ -f "/etc/xray/vmess_account" ]; then
+        cat /etc/xray/vmess_account | while IFS=' ' read -r mark user expdate uuid; do
+            if [ "$mark" = "###" ]; then
+                echo -e "  ${YELLOW}$user${NC} - Expires: $expdate"
+            fi
+        done
+    else
+        echo -e "  ${RED}No VMess accounts${NC}"
+    fi
+    echo ""
+    
+    echo -e "${CYAN}Trojan Accounts:${NC}"
+    if [ -f "/etc/xray/trojan_account" ]; then
+        cat /etc/xray/trojan_account | while IFS=' ' read -r mark user expdate pass; do
+            if [ "$mark" = "###" ]; then
+                echo -e "  ${YELLOW}$user${NC} - Expires: $expdate"
+            fi
+        done
+    else
+        echo -e "  ${RED}No Trojan accounts${NC}"
+    fi
+    echo ""
+    
+    read -n1 -r -p "Press any key..."; formatted_display
+}
 
 # Tampilkan menu utama
 main_menu
